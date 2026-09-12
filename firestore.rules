@@ -2,14 +2,22 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /polls/{pollId}/votes/{voterId} {
-      allow read: if pollId == "class-demo";
+    function validCandidate(roleId, candidate) {
+      return (roleId == "org" && candidate in ["huangchuanhao", "sunsiqi", "fengwenjiao", "miaoyoujia", "chensitong"])
+        || (roleId == "life" && candidate in ["wangxinjun", "linpeng"])
+        || (roleId == "tech" && candidate in ["yiru", "zhouhanfei", "tianhuijun", "houlong"])
+        || (roleId == "discipline" && candidate in ["zoujingdan", "wangwenjun"]);
+    }
 
-      allow create: if pollId == "class-demo"
+    match /polls/{pollId}/roles/{roleId}/votes/{voterId} {
+      allow read: if pollId == "class-election-2026"
+        && roleId in ["org", "life", "tech", "discipline"];
+
+      allow create: if pollId == "class-election-2026"
         && request.auth != null
         && voterId == request.auth.uid
         && request.resource.data.keys().hasOnly(["candidate", "createdAt"])
-        && request.resource.data.candidate in ["zhangsan", "lisi", "wangwu"]
+        && validCandidate(roleId, request.resource.data.candidate)
         && request.resource.data.createdAt == request.time;
 
       allow update, delete: if false;
