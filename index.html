@@ -246,27 +246,58 @@
       }, { once: true });
     }
 
-    async function ensureAnonymousAuth() {
-      return await new Promise(resolve => {
-        const off = onAuthStateChanged(auth, async user => {
-          off();
-          if (user) return resolve(user);
-          const cred = await signInAnonymously(auth);
-          resolve(cred.user);
-        });
+    function withTimeout(promise, ms, message) {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
       });
+      return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+    }
+
+    async function ensureAnonymousAuth() {
+      if (auth.currentUser) return auth.currentUser;
+      const authPromise = signInAnonymously(auth).then(cred => cred.user);
+      return await withTimeout(authPromise, 12000, "匿名登录超时，请检查手机网络后重试。");
+    }
+
+    function renderRetryButton() {
+      voteButtons.innerHTML = `<button type="button" id="retryAuth">重新连接</button>`;
+      document.getElementById("retryAuth").addEventListener("click", () => {
+        startVoteMode();
+      }, { once: true });
+    }
+
+    async function startVoteMode() {
+      voteButtons.innerHTML = "";
+      showVoteMessage("正在获取匿名身份...", "");
+      const slowTimer = setTimeout(() => {
+        showVoteMessage("仍在连接 Firebase 匿名登录。如果手机网络访问 Google/Firebase 较慢，请稍等或切换网络。", "");
+      }, 4000);
+
+      try {
+        const user = await ensureAnonymousAuth();
+        clearTimeout(slowTimer);
+        const existing = await withTimeout(
+          getDoc(doc(db, "polls", POLL_ID, "votes", user.uid)),
+          12000,
+          "读取投票状态超时，请检查网络后重试。"
+        );
+        if (existing.exists()) {
+          showVoteMessage("你已经投过票，不能重复投票。", "ok");
+        } else {
+          voteMessage.classList.add("hidden");
+          renderVoteButtons(user);
+        }
+      } catch (err) {
+        clearTimeout(slowTimer);
+        console.error(err);
+        showVoteMessage(err.message || "连接失败，请检查网络后重试。", "bad");
+        renderRetryButton();
+      }
     }
 
     if (isVoteMode) {
-      showVoteMessage("正在获取匿名身份...", "");
-      const user = await ensureAnonymousAuth();
-      const existing = await getDoc(doc(db, "polls", POLL_ID, "votes", user.uid));
-      if (existing.exists()) {
-        showVoteMessage("你已经投过票，不能重复投票。", "ok");
-      } else {
-        voteMessage.classList.add("hidden");
-        renderVoteButtons(user);
-      }
+      startVoteMode();
     } else {
       listenResults();
     }
